@@ -96,4 +96,5 @@ products_df = pd.read_sql("SELECT id, category, description, name, price FROM Pr
 users_df = pd.read_sql("SELECT id, username, firstName, lastName, dateOfBirth, gender FROM Users", con=local_engine)
 date_df = pd.read_sql("SELECT id, deliveryDate FROM Orders", con=local_engine)
 location_df = pd.read_sql("SELECT id, address1, address2, city, country, zipCode FROM Users", con=local_engine)
-fact_df = pd.read_sql("", con=local_engine)
+fact_df = pd.read_sql(
+    "SELECT i.quantity, i.quantity * p.price AS revenue, o.orderNumber FROM OrderItems AS i JOIN Products AS p ON i.ProductId = p.id JOIN Orders AS o ON i.OrderId = o.id", con=local_engine)
