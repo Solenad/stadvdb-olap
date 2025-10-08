@@ -3,24 +3,25 @@ from dotenv import load_dotenv
 import os
 import pandas as pd
 import psycopg2
-
-load_dotenv()
+import pymysql
 
 # Load environment variables from .env
 load_dotenv()
 
 # Fetch variables
-USER = os.getenv("user")
-PASSWORD = os.getenv("password")
-HOST = os.getenv("host")
-PORT = os.getenv("port")
-DBNAME = os.getenv("dbname")
+ONLINE_USER = os.getenv("user")
+ONLINE_PASSWORD = os.getenv("password")
+ONLINE_HOST = os.getenv("host")
+ONLINE_PORT = os.getenv("port")
+ONLINE_DBNAME = os.getenv("dbname")
 
 # Construct the SQLAlchemy connection string
-DATABASE_URL = f"postgresql+psycopg2://{USER}:{PASSWORD}@{HOST}:{PORT}/{DBNAME}?sslmode=require"
+DATABASE_URL = f"postgresql+psycopg2://{ONLINE_USER}:{ONLINE_PASSWORD}@{ONLINE_HOST}:{ONLINE_PORT}/{ONLINE_DBNAME}?sslmode=require"
 
 #creates the engine to connect to supabase
-engine = create_engine(DATABASE_URL)
+supabase_engine = create_engine(DATABASE_URL)
+
+connect = supabase_engine.connect()
 
 #if the tables don't exist in supabase yet
 metadata_obj = MetaData()
@@ -76,13 +77,23 @@ product_table = Table(
     Column("price", Float),
 )
 
-metadata_obj.create_all(engine, checkfirst=True)
+#adds the tables if not yet created
+metadata_obj.create_all(connect, checkfirst=True)
 
+connect.close()
 
-#not sure if the sql files will be inside the supabase or nakalagay locally sa github so i'll just do both
+#for local mysql datasets
+LOCAL_USER = 'root'
+LOCAL_PASSWORD = 'place_your_local_password'
+LOCAL_HOST = 'localhost'
+LOCAL_DB = 'faker'
 
-#supabase queries
-products_df_supa = pd.read_sql("SELECT ", con=engine)
-users_df_supa = pd.read_sql("", con=engine)
-date_df_supa = pd.read_sql("", con=engine)
-location_df_supa = pd.read_sql("", con=engine)
+local_connection_string = f"mysql+pymysql://{LOCAL_USER}:{LOCAL_PASSWORD}@{LOCAL_HOST}/{LOCAL_DB}"
+local_engine = create_engine(local_connection_string)
+
+#queries to get from dataset
+products_df = pd.read_sql("SELECT id, category, description, name, price FROM Products", con=local_engine)
+users_df = pd.read_sql("SELECT id, username, firstName, lastName, dateOfBirth, gender FROM Users", con=local_engine)
+date_df = pd.read_sql("SELECT id, deliveryDate FROM Orders", con=local_engine)
+location_df = pd.read_sql("SELECT id, address1, address2, city, country, zipCode FROM Users", con=local_engine)
+fact_df = pd.read_sql("", con=local_engine)
