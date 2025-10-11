@@ -16,3 +16,11 @@ def extractLocation():
    df = pd.read_sql(stmt, engine)
    
    return df
+
+def loadLocation(location, warehouse):
+   location.to_sql(
+      'Location',
+      con = warehouse,
+      if_exists='append',
+      index = False
+   )

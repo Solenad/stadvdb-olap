@@ -16,3 +16,11 @@ def extractProduct():
    df = pd.read_sql(stmt, engine)
    
    return df
+
+def loadProduct(product, warehouse):
+   product.to_sql(
+      'Products',
+      con = warehouse,
+      if_exists='append',
+      index = False
+   )

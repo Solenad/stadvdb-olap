@@ -17,6 +17,11 @@ def extractDate():
    df = pd.read_sql(stmt, engine)
    
    return df
-
     
-       
+def loadDate(date, warehouse):
+   date.to_sql(
+      'Date',
+      con = warehouse,
+      if_exists='append',
+      index = False
+   )

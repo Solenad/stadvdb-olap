@@ -20,3 +20,12 @@ def extractFact():
    df = pd.read_sql(stmt, engine)
    
    return df
+
+# still have to load the other tables
+def loadFact(fact, warehouse):
+   fact.to_sql(
+      'FactSales',
+      con = warehouse,
+      if_exists='append',
+      index = False
+   )

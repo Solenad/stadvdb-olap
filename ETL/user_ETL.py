@@ -17,9 +17,6 @@ def extractUser():
    
    return df
 
-# def transformUser():
-
-# gets user from extract and warehouse for connection
 def loadUser(user, warehouse):
    user.to_sql(
       'Users',
