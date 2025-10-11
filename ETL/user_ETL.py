@@ -1,5 +1,5 @@
 from config import local
-from sqlalchemy import  select, automap_base
+from sqlalchemy import  select, automap_base, func
 import pandas as pd
 
 def extractUser():
@@ -11,7 +11,7 @@ def extractUser():
 
    User = Base.classes.users
    
-   stmt = select(User.username, User.firstName, User.lastName, User.dateOfBirth, User.gender)
+   stmt = select(func.row_number().over(order_by=User.username).label('id'),User.username, User.firstName, User.lastName, User.dateOfBirth, User.gender)
    
    df = pd.read_sql(stmt, engine)
    

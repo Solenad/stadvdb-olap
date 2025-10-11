@@ -1,5 +1,5 @@
 from config import local
-from sqlalchemy import  select, automap_base
+from sqlalchemy import  select, automap_base, func
 import pandas as pd
 
 def extractProduct():
@@ -11,7 +11,7 @@ def extractProduct():
 
    Product = Base.classes.products
    
-   stmt = select(Product.category, Product.description, Product.name, Product.price)
+   stmt = select(func.row_number().over(order_by=Product.name).label('id'), Product.category, Product.description, Product.name, Product.price)
    
    df = pd.read_sql(stmt, engine)
    
