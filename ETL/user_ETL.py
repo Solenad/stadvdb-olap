@@ -16,3 +16,14 @@ def extractUser():
    df = pd.read_sql(stmt, engine)
    
    return df
+
+# def transformUser():
+
+# gets user from extract and warehouse for connection
+def loadUser(user, warehouse):
+   user.to_sql(
+      'Users',
+      con = warehouse,
+      if_exists='append',
+      index = False
+   )
