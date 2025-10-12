@@ -12,7 +12,7 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
 )
 
-BATCH_SIZE = int(os.getenv("BATCH_SIZE") or 2000)
+BATCH_SIZE = int(os.getenv("BATCH_SIZE") or 5000)
 
 
 @contextmanager
