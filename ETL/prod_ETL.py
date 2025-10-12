@@ -53,7 +53,7 @@ def loadProductData(df: pd.DataFrame) -> int:
 
     try:
         with supa.engine.begin() as conn:
-            conn.execute(text('TRUNCATE TABLE "Products" RESTART IDENTITY CASCADE'))
+            conn.execute(text('TRUNCATE TABLE olap."Products" RESTART IDENTITY CASCADE'))
             df.to_sql(
                 "Products",
                 conn,

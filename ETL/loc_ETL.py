@@ -66,7 +66,7 @@ def loadLocationData(df: pd.DataFrame) -> int:
 
     try:
         with supa.engine.begin() as conn:
-            conn.execute(text('TRUNCATE TABLE "Location" RESTART IDENTITY CASCADE'))
+            conn.execute(text('TRUNCATE TABLE olap."Location" RESTART IDENTITY CASCADE'))
             df.to_sql(
                 "Location",
                 conn,

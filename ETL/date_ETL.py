@@ -21,15 +21,28 @@ def extract():
         session.close()
         logging.info("DB connection closed.")
 
+def cleanDateData(df: pd.DataFrame) -> pd.DataFrame:
+    logging.info("Cleaning date data...")
+
+    df["deliveryDate"] = pd.to_datetime(df["deliveryDate"], errors="coerce")
+    df = df.dropna(subset=["deliveryDate"])
+    df =  df.copy()
+    df["deliveryDate"] = df["deliveryDate"].dt.date
+
+    df = df.drop_duplicates(subset=["deliveryDate"]).reset_index(drop=True)
+    df["id"] = df.index + 1  # matches Supabase's Users.id structure
+
+    logging.info("Date data cleaning completed successfully.")
+    return df[["id","deliveryDate"]]
 
 def loadDateData(df: pd.DataFrame) -> int:
     logging.info("Loading date data into warehouse...")
 
     try:
         with supa.engine.begin() as conn:
-            conn.execute(text('TRUNCATE TABLE "Date" RESTART IDENTITY CASCADE'))
+            conn.execute(text('TRUNCATE TABLE olap."Date" RESTART IDENTITY CASCADE'))
             df.to_sql(
-                "Dates",
+                "Date",
                 conn,
                 if_exists="append",
                 index=False,
@@ -56,7 +69,7 @@ def extractDate():
     stmt = select(
         func.row_number().over(order_by=orders.c.createdAt).label("id"),
         orders.c.id.label("nat_key"),
-        orders.c.createdAt,
+        orders.c.deliveryDate,
     )
 
     logging.info("Extracting date data...")
@@ -65,7 +78,8 @@ def extractDate():
         df = pd.read_sql(stmt, session.bind)
 
     logging.info(f"Extracted {len(df)} raw date records.")
-
+    df = cleanDateData(df)
+    
     logging.info(
         f"Transformed date data: {
                  len(df)} records ready for loading."

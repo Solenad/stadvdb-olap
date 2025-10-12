@@ -7,16 +7,16 @@ try:
         conn.execute(text("SELECT 1"))
     print("Connected to local DB.")
 
-    #user_df = user_ETL.extractUser()
+    user_df = user_ETL.extractUser()
 
-    #loc_df = loc_ETL.extractLocation()
+    loc_df = loc_ETL.extractLocation()
     
-    #date_df = date_ETL.extractDate()
+    date_df = date_ETL.extractDate()
 
     prod_df = prod_ETL.extractProduct()
 
-    fact_df = fact_ETL.extractFact()
-    factt_df = fact_ETL.transformFact(fact_df, user_df, loc_df, date_df, prod_df)
+    fact_df = fact_ETL.extractFact(user_df, loc_df, date_df, prod_df)
+
     print(fact_df)
 
 except Exception as e:

@@ -54,7 +54,7 @@ def loadUserData(df: pd.DataFrame) -> int:
 
     try:
         with supa.engine.begin() as conn:
-            conn.execute(text('TRUNCATE TABLE "Users" RESTART IDENTITY CASCADE'))
+            conn.execute(text('TRUNCATE TABLE olap."Users" RESTART IDENTITY CASCADE'))
             df.to_sql(
                 "Users",
                 conn,
