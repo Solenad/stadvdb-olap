@@ -44,11 +44,12 @@ def cleanFactData(df: pd.DataFrame, user_df, loc_df, date_df, prod_df) -> pd.Dat
     ]
     
     for col, dim_df, s_key, n_key in merge_info:
-      df = df.merge(dim_df[['nat_key', 'id']], left_on=col, right_on='nat_key', how='left')
-      df.rename(columns={'id': s_key, 'nat_key': n_key}, inplace=True)
-      df[col] = df[s_key]
+      temp = dim_df[['nat_key', 'id']].rename(columns={'nat_key': n_key, 'id': s_key})
+      print(df)
+      df = df.merge(temp, left_on=col, right_on=n_key, how='left')
+      df[col] = df[s_key]  # replace natural key with surrogate key
       df.drop(columns=[s_key, n_key], inplace=True)
-      
+         
     df["id"] = df.index + 1
     
     logging.info("Fact data cleaning completed successfully.")
@@ -79,7 +80,6 @@ def loadFactData(df: pd.DataFrame) -> int:
     except Exception as e:
         logging.error(f"Error loading data: {e}")
         raise
-
 
 def extractFact(user_df, loc_df, date_df, prod_df):
     metadata = MetaData()
@@ -112,6 +112,7 @@ def extractFact(user_df, loc_df, date_df, prod_df):
         df = pd.read_sql(stmt, session.bind)
 
     logging.info(f"Extracted {len(df)} raw fact records.")
+    
     df = cleanFactData(df, user_df, loc_df, date_df, prod_df)
 
     logging.info(
@@ -121,4 +122,5 @@ def extractFact(user_df, loc_df, date_df, prod_df):
     total_inserted = loadFactData(df)
 
     logging.info(f"ETL process completed — totalInserted = {total_inserted}")
-    return {"totalInserted": total_inserted, "transformedRows": len(df)}
+    #return {"totalInserted": total_inserted, "transformedRows": len(df)}
+    return df

@@ -33,7 +33,7 @@ def cleanDateData(df: pd.DataFrame) -> pd.DataFrame:
     df["id"] = df.index + 1  # matches Supabase's Users.id structure
 
     logging.info("Date data cleaning completed successfully.")
-    return df[["id","deliveryDate"]]
+    return df[["id","deliveryDate"]], df
 
 def loadDateData(df: pd.DataFrame) -> int:
     logging.info("Loading date data into warehouse...")
@@ -64,6 +64,7 @@ def loadDateData(df: pd.DataFrame) -> int:
 def extractDate():
     metadata = MetaData()
     metadata.reflect(bind=local.engine, only=["orders"])
+    iddf = 0
     orders = metadata.tables["orders"]
 
     stmt = select(
@@ -78,7 +79,7 @@ def extractDate():
         df = pd.read_sql(stmt, session.bind)
 
     logging.info(f"Extracted {len(df)} raw date records.")
-    df = cleanDateData(df)
+    df, iddf = cleanDateData(df)
     
     logging.info(
         f"Transformed date data: {
@@ -87,7 +88,8 @@ def extractDate():
     total_inserted = loadDateData(df)
 
     logging.info(f"ETL process completed — totalInserted = {total_inserted}")
-    return {"totalInserted": total_inserted, "transformedRows": len(df)}
+    #return {"totalInserted": total_inserted, "transformedRows": len(df)}
+    return iddf
 
     
        

@@ -45,7 +45,7 @@ def cleanProductData(df: pd.DataFrame) -> pd.DataFrame:
     df["id"] = df.index + 1  # matches Supabase's Users.id structure
 
     logging.info("Product data cleaning completed successfully.")
-    return df[["category", "description", "name", "price"]]
+    return df[["category", "description", "name", "price"]], df
 
 
 def loadProductData(df: pd.DataFrame) -> int:
@@ -77,6 +77,7 @@ def loadProductData(df: pd.DataFrame) -> int:
 def extractProduct():
     metadata = MetaData()
     metadata.reflect(bind=local.engine, only=["products"])
+    iddf = 0
     products = metadata.tables["products"]
 
     stmt = select(
@@ -94,7 +95,7 @@ def extractProduct():
         df = pd.read_sql(stmt, session.bind)
 
     logging.info(f"Extracted {len(df)} raw product records.")
-    df = cleanProductData(df)
+    df, iddf = cleanProductData(df)
 
     logging.info(
         f"Transformed product data: {
@@ -103,4 +104,5 @@ def extractProduct():
     total_inserted = loadProductData(df)
 
     logging.info(f"ETL process completed — totalInserted = {total_inserted}")
-    return {"totalInserted": total_inserted, "transformedRows": len(df)}
+    #return {"totalInserted": total_inserted, "transformedRows": len(df)}
+    return iddf

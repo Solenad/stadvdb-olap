@@ -1,0 +1,1 @@
+fact_df = fact_ETL.extractFact(user_df, loc_df, date_df, prod_df)

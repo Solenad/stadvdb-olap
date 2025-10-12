@@ -23,7 +23,7 @@ def extract():
         logging.info("DB connection closed.")
 
 
-def cleanUserData(df: pd.DataFrame) -> pd.DataFrame:
+def cleanUserData(df: pd.DataFrame, iddf) -> pd.DataFrame:
     logging.info("Cleaning user data...")
 
     df = df.dropna(subset=["username", "firstName", "lastName"]).copy()
@@ -44,9 +44,9 @@ def cleanUserData(df: pd.DataFrame) -> pd.DataFrame:
 
     df = df.drop_duplicates(subset=["username"]).reset_index(drop=True)
     df["id"] = df.index + 1  # matches Supabase's Users.id structure
-
+    
     logging.info("User data cleaning completed successfully.")
-    return df[["id", "username", "firstName", "lastName", "dateOfBirth", "gender"]]
+    return df[["id", "username", "firstName", "lastName", "dateOfBirth", "gender"]], df
 
 
 def loadUserData(df: pd.DataFrame) -> int:
@@ -78,6 +78,7 @@ def loadUserData(df: pd.DataFrame) -> int:
 def extractUser():
     metadata = MetaData()
     metadata.reflect(bind=local.engine, only=["users"])
+    iddf = 0
     users = metadata.tables["users"]
 
     stmt = select(
@@ -96,7 +97,7 @@ def extractUser():
         df = pd.read_sql(stmt, session.bind)
 
     logging.info(f"Extracted {len(df)} raw user records.")
-    df = cleanUserData(df)
+    df, iddf = cleanUserData(df, iddf)
 
     logging.info(
         f"Transformed user data: {
@@ -105,4 +106,5 @@ def extractUser():
     total_inserted = loadUserData(df)
 
     logging.info(f"ETL process completed — totalInserted = {total_inserted}")
-    return {"totalInserted": total_inserted, "transformedRows": len(df)}
+    #return {"totalInserted": total_inserted, "transformedRows": len(df)}
+    return iddf

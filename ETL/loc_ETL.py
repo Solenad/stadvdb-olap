@@ -58,7 +58,7 @@ def cleanLocationData(df: pd.DataFrame) -> pd.DataFrame:
     df["id"] = df.index + 1  # matches Supabase's Users.id structure
 
     logging.info("Location data cleaning completed successfully.")
-    return df[["address1", "address2", "city", "country", "zipCode"]]
+    return df[["address1", "address2", "city", "country", "zipCode"]], df
 
 
 def loadLocationData(df: pd.DataFrame) -> int:
@@ -90,6 +90,7 @@ def loadLocationData(df: pd.DataFrame) -> int:
 def extractLocation():
     metadata = MetaData()
     metadata.reflect(bind=local.engine, only=["users"])
+    iddf = 0
     users = metadata.tables["users"]
 
     stmt = select(
@@ -108,7 +109,7 @@ def extractLocation():
         df = pd.read_sql(stmt, session.bind)
 
     logging.info(f"Extracted {len(df)} raw location records.")
-    df = cleanLocationData(df)
+    df, iddf = cleanLocationData(df)
 
     logging.info(
         f"Transformed location data: {
@@ -117,4 +118,5 @@ def extractLocation():
     total_inserted = loadLocationData(df)
 
     logging.info(f"ETL process completed — totalInserted = {total_inserted}")
-    return {"totalInserted": total_inserted, "transformedRows": len(df)}
+    #return {"totalInserted": total_inserted, "transformedRows": len(df)}
+    return iddf
