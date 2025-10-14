@@ -31,13 +31,14 @@ def extract():
 
 @contextmanager
 def warehouse_conn():
-    conn = supa.engine.begin()
+    conn = supa.engine.connect()
     try:
         yield conn
     except Exception as e:
-        logging.error(f"Error during warehouse operation: {e}")
+        logging.error(f"Error during warehouse operation: {str(e)}")
         raise
     finally:
+        conn.close()
         logging.info("Warehouse connection closed.")
 
 
@@ -58,11 +59,14 @@ def cleanUserData(df: pd.DataFrame) -> pd.DataFrame:
     df = df.drop_duplicates(subset=["username"]).reset_index(drop=True)
     return df[["nat_key", "username", "firstName", "lastName", "dateOfBirth", "gender"]]
 
-
 def extractUser():
     metadata = MetaData()
     metadata.reflect(bind=local.engine, only=["users"])
     users = metadata.tables["users"]
+    
+    target_metadata = MetaData()
+    target_metadata.reflect(bind=supa.engine, only=["Users"])
+    target_users = target_metadata.tables["Users"]
 
     stmt = (
         select(
@@ -80,6 +84,8 @@ def extractUser():
     total_inserted = 0
     logging.info("Starting user data extraction.")
 
+    mapping_data = []
+
     with extract() as session, warehouse_conn() as conn:
         result = session.execute(stmt)
 
@@ -89,29 +95,44 @@ def extractUser():
                 break
 
             df = pd.DataFrame(chunk, columns=result.keys())
+            logging.info(f"Extracted {len(df)} raw user records.")
+            
             df = cleanUserData(df)
+            
             if df.empty:
                 continue
 
-            insert_stmt = insert(text('"Users"')).values(df.to_dict(orient="records"))
+            insert_data = df[["username", "firstName", "lastName", "dateOfBirth", "gender"]].to_dict(orient="records")
+            insert_stmt = insert(target_users).values(insert_data)
             upsert_stmt = insert_stmt.on_conflict_do_update(
-                index_elements=["nat_key"],
+                index_elements=["username"],
                 set_={
-                    "username": insert_stmt.excluded.username,
                     "firstName": insert_stmt.excluded.firstName,
-                    "lastName": insert_stmt.excluded.lastName,
+                    "lastName": insert_stmt.excluded.lastName, 
                     "dateOfBirth": insert_stmt.excluded.dateOfBirth,
                     "gender": insert_stmt.excluded.gender,
                 },
-            )
-            conn.execute(upsert_stmt)
-            total_inserted += len(df)
-            logging.info(f"Processed {total_inserted} records so far.")
-            del df, chunk
-            gc.collect()
+            ).returning(target_users.c.id, target_users.c.username)
 
-    logging.info(
-        f"ETL completed successfully — totalInserted = {
-            total_inserted}"
-    )
-    return {"totalInserted": total_inserted}
+            result_set = conn.execute(upsert_stmt)
+            conn.commit()
+            db_rows = result_set.fetchall()
+            
+            for db_row in db_rows:
+                username = db_row.username
+                surrogate_key = db_row.id
+                
+                nat_keys = df[df['username'] == username]['nat_key'].tolist()
+                for nat_key in nat_keys:
+                    mapping_data.append({
+                        'nat_key': nat_key,
+                        'surrogate_key': surrogate_key,
+                        'username': username
+                    })
+            
+            total_inserted += len(df)
+
+    mapped_df = pd.DataFrame(mapping_data)
+    print(mapped_df)
+    logging.info(f"ETL completed - {total_inserted} users, {len(mapped_df)} mappings")
+    return mapped_df, {"totalInserted": total_inserted, "mapping": mapped_df}

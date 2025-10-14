@@ -1,51 +1,48 @@
-from config import local
-from sqlalchemy import  select, func
-from sqlalchemy.ext.automap import automap_base
-import pandas as pd
-
-def extractLocation():
-   engine = local.localConnect()
-   
-   Base = automap_base()
-   
-   Base.prepare(autoload_with=engine)
-
-   User = Base.classes.users
-   
-   stmt = select(func.row_number().over(order_by=User.address1).label('id'), (User.id).label('nat_key'), User.address1, User.address2, User.city, User.country, User.zipCode)
-   
-   df = pd.read_sql(stmt, engine)
-   
-   return df
-
 from config import local, supa
 from contextlib import contextmanager
-from sqlalchemy import select, func, MetaData, text
+from sqlalchemy import select, MetaData, text
+from sqlalchemy.dialects.postgresql import insert
 import pandas as pd
 import logging
+import itertools
+import gc
+import os
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
 )
+
+BATCH_SIZE = int(os.getenv("BATCH_SIZE") or 5000)
 
 
 @contextmanager
 def extract():
     session = local.Session()
     try:
-        logging.info("DB connection established.")
+        logging.info("Source DB connection established.")
         yield session
     except Exception as e:
         logging.error(f"Error during extraction: {e}")
         raise
     finally:
         session.close()
-        logging.info("DB connection closed.")
+        logging.info("Source DB connection closed.")
+
+
+@contextmanager
+def warehouse_conn():
+    conn = supa.engine.connect()
+    try:
+        yield conn
+    except Exception as e:
+        logging.error(f"Error during warehouse operation: {str(e)}")
+        raise
+    finally:
+        conn.close()
+        logging.info("Warehouse connection closed.")
 
 
 def cleanLocationData(df: pd.DataFrame) -> pd.DataFrame:
-    logging.info("Cleaning location data...")
-
     df = df.dropna(subset=["address1", "address2", "city", "country", "zipCode"]).copy()
     df["address1"] = df["address1"].str.strip().str.title()
     df["address2"] = df["address2"].str.strip().str.title()
@@ -54,69 +51,83 @@ def cleanLocationData(df: pd.DataFrame) -> pd.DataFrame:
     df["zipCode"] = df["zipCode"].str.strip().str.title()   
 
     df = df.drop_duplicates(subset=["address1"]).reset_index(drop=True)
-    df = df.drop_duplicates(subset=["address2"]).reset_index(drop=True)
-    df["id"] = df.index + 1  # matches Supabase's Users.id structure
-
-    logging.info("Location data cleaning completed successfully.")
-    return df[["address1", "address2", "city", "country", "zipCode"]], df
-
-
-def loadLocationData(df: pd.DataFrame) -> int:
-    logging.info("Loading location data into warehouse...")
-
-    try:
-        with supa.engine.begin() as conn:
-            conn.execute(text('TRUNCATE TABLE olap."Location" RESTART IDENTITY CASCADE'))
-            df.to_sql(
-                "Location",
-                conn,
-                if_exists="append",
-                index=False,
-                method="multi",
-                chunksize=1000,
-            )
-
-            result = conn.execute(text('SELECT COUNT(*) FROM "Location"'))
-            total_inserted = result.scalar_one()
-
-        logging.info(f"Loaded {total_inserted} records into Location successfully.")
-        return total_inserted
-
-    except Exception as e:
-        logging.error(f"Error loading data: {e}")
-        raise
+    return df[["nat_key", "address1", "address2", "city", "country", "zipCode"]]
 
 
 def extractLocation():
     metadata = MetaData()
     metadata.reflect(bind=local.engine, only=["users"])
-    iddf = 0
     users = metadata.tables["users"]
+    
+    target_metadata = MetaData()
+    target_metadata.reflect(bind=supa.engine, only=["Location"])
+    target_locs = target_metadata.tables["Location"]
 
-    stmt = select(
-        func.row_number().over(order_by=users.c.address1).label("id"),
-        users.c.id.label("nat_key"),
-        users.c.address1,
-        users.c.address2,
-        users.c.city,
-        users.c.country,
-        users.c.zipCode,
+    stmt = (
+        select(
+            users.c.id.label("nat_key"),
+            users.c.address1,
+            users.c.address2,
+            users.c.city,
+            users.c.country,
+            users.c.zipCode,
+        )
+        .order_by(users.c.address1)
+        .execution_options(stream_results=True, yield_per=BATCH_SIZE)
     )
 
-    logging.info("Extracting location data...")
+    total_inserted = 0
+    logging.info("Starting location data extraction.")
 
-    with extract() as session:
-        df = pd.read_sql(stmt, session.bind)
+    mapping_data = []
 
-    logging.info(f"Extracted {len(df)} raw location records.")
-    df, iddf = cleanLocationData(df)
+    with extract() as session, warehouse_conn() as conn:
+        result = session.execute(stmt)
 
-    logging.info(
-        f"Transformed location data: {
-                 len(df)} records ready for loading."
-    )
-    total_inserted = loadLocationData(df)
+        while True:
+            chunk = list(itertools.islice(result, BATCH_SIZE))
+            if not chunk:
+                break
 
-    logging.info(f"ETL process completed — totalInserted = {total_inserted}")
-    #return {"totalInserted": total_inserted, "transformedRows": len(df)}
-    return iddf
+            df = pd.DataFrame(chunk, columns=result.keys())
+            logging.info(f"Extracted {len(df)} raw location records.")
+            
+            df = cleanLocationData(df)
+            
+            if df.empty:
+                continue
+
+            insert_data = df[["address1", "address2", "city", "country", "zipCode"]].to_dict(orient="records")
+            insert_stmt = insert(target_locs).values(insert_data)
+            upsert_stmt = insert_stmt.on_conflict_do_update(
+                index_elements=["address1"],
+                set_={
+                    "address2": insert_stmt.excluded.address2,
+                    "city": insert_stmt.excluded.city, 
+                    "country": insert_stmt.excluded.country,
+                    "zipCode": insert_stmt.excluded.zipCode,
+                },
+            ).returning(target_locs.c.id, target_locs.c.address1)
+
+            result_set = conn.execute(upsert_stmt)
+            conn.commit()
+            db_rows = result_set.fetchall()
+            
+            for db_row in db_rows:
+                address1 = db_row.address1
+                surrogate_key = db_row.id
+                
+                nat_keys = df[df['address1'] == address1]['nat_key'].tolist()
+                for nat_key in nat_keys:
+                    mapping_data.append({
+                        'nat_key': nat_key,
+                        'surrogate_key': surrogate_key,
+                        'address1': address1
+                    })
+            
+            total_inserted += len(df)
+
+    mapped_df = pd.DataFrame(mapping_data)
+    print(mapped_df)
+    logging.info(f"ETL completed - {total_inserted} locations, {len(mapped_df)} mappings")
+    return mapped_df, {"totalInserted": total_inserted, "mapping": mapped_df}

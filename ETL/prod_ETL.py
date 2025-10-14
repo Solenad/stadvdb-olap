@@ -1,32 +1,49 @@
 from config import local, supa
 from contextlib import contextmanager
-from sqlalchemy import select, func, MetaData, text
+from sqlalchemy import select, MetaData, text
+from sqlalchemy.dialects.postgresql import insert
 import pandas as pd
 import numpy as np
 import logging
+import itertools
+import gc
+import os
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
 )
+
+BATCH_SIZE = int(os.getenv("BATCH_SIZE") or 5000)
 
 
 @contextmanager
 def extract():
     session = local.Session()
     try:
-        logging.info("DB connection established.")
+        logging.info("Source DB connection established.")
         yield session
     except Exception as e:
         logging.error(f"Error during extraction: {e}")
         raise
     finally:
         session.close()
-        logging.info("DB connection closed.")
+        logging.info("Source DB connection closed.")
+
+
+@contextmanager
+def warehouse_conn():
+    conn = supa.engine.connect()
+    try:
+        yield conn
+    except Exception as e:
+        logging.error(f"Error during warehouse operation: {str(e)}")
+        raise
+    finally:
+        conn.close()
+        logging.info("Warehouse connection closed.")
 
 
 def cleanProductData(df: pd.DataFrame) -> pd.DataFrame:
-    logging.info("Cleaning product data...")
-
     df = df.dropna(subset=["category", "description", "name", "price"]).copy()
     df["category"] = df["category"].str.strip().str.lower()
     df["description"] = df["description"].str.strip().str.title()
@@ -42,67 +59,82 @@ def cleanProductData(df: pd.DataFrame) -> pd.DataFrame:
         'bag':'Bags'})
 
     df = df.drop_duplicates(subset=["name"]).reset_index(drop=True)
-    df["id"] = df.index + 1  # matches Supabase's Users.id structure
-
-    logging.info("Product data cleaning completed successfully.")
-    return df[["category", "description", "name", "price"]], df
-
-
-def loadProductData(df: pd.DataFrame) -> int:
-    logging.info("Loading product data into warehouse...")
-
-    try:
-        with supa.engine.begin() as conn:
-            conn.execute(text('TRUNCATE TABLE olap."Products" RESTART IDENTITY CASCADE'))
-            df.to_sql(
-                "Products",
-                conn,
-                if_exists="append",
-                index=False,
-                method="multi",
-                chunksize=1000,
-            )
-
-            result = conn.execute(text('SELECT COUNT(*) FROM "Products"'))
-            total_inserted = result.scalar_one()
-
-        logging.info(f"Loaded {total_inserted} records into Products successfully.")
-        return total_inserted
-
-    except Exception as e:
-        logging.error(f"Error loading data: {e}")
-        raise
+    return df[["nat_key", "category", "description", "name", "price"]]
 
 
 def extractProduct():
     metadata = MetaData()
     metadata.reflect(bind=local.engine, only=["products"])
-    iddf = 0
-    products = metadata.tables["products"]
+    prods = metadata.tables["products"]
+    
+    target_metadata = MetaData()
+    target_metadata.reflect(bind=supa.engine, only=["Products"])
+    target_prods = target_metadata.tables["Products"]
 
-    stmt = select(
-        func.row_number().over(order_by=products.c.category).label("id"),
-        products.c.id.label("nat_key"),
-        products.c.category,
-        products.c.description,
-        products.c.name,
-        products.c.price,
+    stmt = (
+        select(
+            prods.c.id.label("nat_key"),
+            prods.c.category,
+            prods.c.description,
+            prods.c.name,
+            prods.c.price,
+        )
+        .order_by(prods.c.name)
+        .execution_options(stream_results=True, yield_per=BATCH_SIZE)
     )
 
-    logging.info("Extracting product data...")
+    total_inserted = 0
+    logging.info("Starting product data extraction.")
 
-    with extract() as session:
-        df = pd.read_sql(stmt, session.bind)
+    mapping_data = []
 
-    logging.info(f"Extracted {len(df)} raw product records.")
-    df, iddf = cleanProductData(df)
+    with extract() as session, warehouse_conn() as conn:
+        result = session.execute(stmt)
 
-    logging.info(
-        f"Transformed product data: {
-                 len(df)} records ready for loading."
-    )
-    total_inserted = loadProductData(df)
+        while True:
+            chunk = list(itertools.islice(result, BATCH_SIZE))
+            if not chunk:
+                break
 
-    logging.info(f"ETL process completed — totalInserted = {total_inserted}")
-    #return {"totalInserted": total_inserted, "transformedRows": len(df)}
-    return iddf
+            df = pd.DataFrame(chunk, columns=result.keys())
+            logging.info(f"Extracted {len(df)} raw product records.")
+            
+            df = cleanProductData(df)
+            
+            if df.empty:
+                continue
+
+            insert_data = df[["category", "description", "name", "price"]].to_dict(orient="records")
+            insert_stmt = insert(target_prods).values(insert_data)
+            upsert_stmt = insert_stmt.on_conflict_do_update(
+                index_elements=["name"],
+                set_={
+                    "category": insert_stmt.excluded.category,
+                    "description": insert_stmt.excluded.description, 
+                    "price": insert_stmt.excluded.price,
+                },
+            ).returning(target_prods.c.id, target_prods.c.name)
+
+            result_set = conn.execute(upsert_stmt)
+            conn.commit()
+            db_rows = result_set.fetchall()
+            
+            for db_row in db_rows:
+                name = db_row.name
+                surrogate_key = db_row.id
+                
+                nat_keys = df[df['name'] == name]['nat_key'].tolist()
+                for nat_key in nat_keys:
+                    mapping_data.append({
+                        'nat_key': nat_key,
+                        'surrogate_key': surrogate_key,
+                        'name': name
+                    })
+            
+            total_inserted += len(df)
+
+    mapped_df = pd.DataFrame(mapping_data)
+    print(mapped_df)
+    logging.info(f"ETL completed - {total_inserted} products, {len(mapped_df)} mappings")
+    return mapped_df, {"totalInserted": total_inserted, "mapping": mapped_df}
+
