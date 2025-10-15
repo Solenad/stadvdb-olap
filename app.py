@@ -1,11 +1,15 @@
 from config import local
 from ETL import user_ETL, date_ETL, loc_ETL, prod_ETL, fact_ETL
 from sqlalchemy import text
+import time
+
 
 try:
     with local.engine.connect() as conn:
         conn.execute(text("SELECT 1"))
     print("Connected to local DB.")
+    
+    start = time.time()
 
     user_df, user_debug = user_ETL.extractUser()
 
@@ -18,6 +22,11 @@ try:
     fact_df = fact_ETL.extractFact(user_df, loc_df, date_df, prod_df)
 
     print(fact_df)
+    
+    end = time.time()
+    length = end - start
+    
+    print("It took", length, "seconds!")
 
 except Exception as e:
     print(f"Connection failed {e}")
