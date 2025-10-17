@@ -74,7 +74,6 @@ def extractLocation():
             users.c.country,
             users.c.zipCode,
         )
-        .order_by(users.c.address1)
         .execution_options(stream_results=True, yield_per=BATCH_SIZE)
     )
 
@@ -115,23 +114,24 @@ def extractLocation():
             conn.commit()
             db_rows = result_set.fetchall()
             
-            for db_row in db_rows:
-                address1 = db_row.address1
-                surrogate_key = db_row.id
-                
-                nat_keys = df[df['address1'] == address1]['nat_key'].tolist()
-                for nat_key in nat_keys:
-                    mapping_data.append({
-                        'nat_key': nat_key,
-                        'surrogate_key': surrogate_key,
-                        'address1': address1
-                    })
+            if db_rows:
+                surrogate_key_df = pd.DataFrame(db_rows, columns=['id', 'address1'])
+                surrogate_key_df = surrogate_key_df.rename(columns={'id': 'surrogate_key'})
+
+                merged_df = pd.merge(df, surrogate_key_df, on='address1', how='inner')
+
+                if not merged_df.empty:
+                    mapping_data.append(merged_df[['nat_key', 'surrogate_key']])
             
             total_inserted += len(df)
-            del df, chunk
+            del df, chunk, db_rows
+            if 'surrogate_key_df' in locals():
+                del surrogate_key_df
+            if 'merged_df' in locals():
+                del merged_df
             gc.collect()
 
-    mapped_df = pd.DataFrame(mapping_data)
+    mapped_df = pd.concat(mapping_data, ignore_index=True) if mapping_data else pd.DataFrame(columns=['nat_key', 'surrogate_key'])
     logging.info(f"ETL completed - {total_inserted} locations, {len(mapped_df)} mappings")
     end = time.time()
     length = end - start
