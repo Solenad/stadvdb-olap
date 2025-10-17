@@ -44,12 +44,7 @@ def warehouse_conn():
 
 
 def cleanDateData(df: pd.DataFrame) -> pd.DataFrame:
-    df["deliveryDate"] = pd.to_datetime(df["deliveryDate"], errors="coerce")
-    df = df.dropna(subset=["deliveryDate"])
-    df = df.copy()
-    df["deliveryDate"] = df["deliveryDate"].dt.date
-
-    df = df.drop_duplicates(subset=["deliveryDate"]).reset_index(drop=True)
+    df['deliveryDate'] = pd.to_datetime(df['deliveryDate'], format='mixed').dt.normalize()
     
     df = df.rename(columns={'deliveryDate': 'date'})
     return df[["nat_key", "date"]]
@@ -77,7 +72,7 @@ def extractDate():
     logging.info("Starting date data extraction.")
 
     mapping_data = []
-
+    
     with extract() as session, warehouse_conn() as conn:
         result = session.execute(stmt)
 
@@ -94,7 +89,7 @@ def extractDate():
             if df.empty:
                 continue
 
-            insert_data = df[["date"]].to_dict(orient="records")
+            insert_data = df[["date"]].drop_duplicates().to_dict(orient="records")
             insert_stmt = insert(target_date).values(insert_data)
             upsert_stmt = insert_stmt.on_conflict_do_update(
                 index_elements=["date"],
@@ -110,6 +105,7 @@ def extractDate():
             if db_rows:
                 surrogate_key_df = pd.DataFrame(db_rows, columns=['id', 'date'])
                 surrogate_key_df = surrogate_key_df.rename(columns={'id': 'surrogate_key'})
+                surrogate_key_df['date'] = pd.to_datetime(surrogate_key_df['date'])
 
                 merged_df = pd.merge(df, surrogate_key_df, on='date', how='inner')
 
@@ -117,11 +113,7 @@ def extractDate():
                     mapping_data.append(merged_df[['nat_key', 'surrogate_key']])
             
             total_inserted += len(df)
-            del df, chunk, db_rows
-            if 'surrogate_key_df' in locals():
-                del surrogate_key_df
-            if 'merged_df' in locals():
-                del merged_df
+            del df, chunk, db_rows, surrogate_key_df, merged_df
             gc.collect()
 
     mapped_df = pd.concat(mapping_data, ignore_index=True) if mapping_data else pd.DataFrame(columns=['nat_key', 'surrogate_key'])
