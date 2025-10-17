@@ -51,7 +51,7 @@ def cleanLocationData(df: pd.DataFrame) -> pd.DataFrame:
     df["country"] = df["country"].str.strip().str.title()
     df["zipCode"] = df["zipCode"].str.strip().str.title()   
 
-    df = df.drop_duplicates(subset=["address1"]).reset_index(drop=True)
+    df = df.drop_duplicates(subset=["address1", "address2", "city"]).reset_index(drop=True)
     return df[["nat_key", "address1", "address2", "city", "country", "zipCode"]]
 
 
@@ -101,24 +101,22 @@ def extractLocation():
             insert_data = df[["address1", "address2", "city", "country", "zipCode"]].to_dict(orient="records")
             insert_stmt = insert(target_locs).values(insert_data)
             upsert_stmt = insert_stmt.on_conflict_do_update(
-                index_elements=["address1"],
+                index_elements=["address1", "address2", "city"],
                 set_={
-                    "address2": insert_stmt.excluded.address2,
-                    "city": insert_stmt.excluded.city, 
                     "country": insert_stmt.excluded.country,
                     "zipCode": insert_stmt.excluded.zipCode,
                 },
-            ).returning(target_locs.c.id, target_locs.c.address1)
+            ).returning(target_locs.c.id, target_locs.c.address1, target_locs.c.address2, target_locs.c.city)
 
             result_set = conn.execute(upsert_stmt)
             conn.commit()
             db_rows = result_set.fetchall()
             
             if db_rows:
-                surrogate_key_df = pd.DataFrame(db_rows, columns=['id', 'address1'])
+                surrogate_key_df = pd.DataFrame(db_rows, columns=['id', 'address1', 'address2', 'city'])
                 surrogate_key_df = surrogate_key_df.rename(columns={'id': 'surrogate_key'})
 
-                merged_df = pd.merge(df, surrogate_key_df, on='address1', how='inner')
+                merged_df = pd.merge(df, surrogate_key_df, on=['address1','address2','city'], how='inner')
 
                 if not merged_df.empty:
                     mapping_data.append(merged_df[['nat_key', 'surrogate_key']])

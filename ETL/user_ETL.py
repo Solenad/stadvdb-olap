@@ -54,7 +54,6 @@ def cleanUserData(df: pd.DataFrame) -> pd.DataFrame:
         .replace({"male": "M", "female": "F", "m": "M", "f": "F"})
     )
     df['dateOfBirth'] = pd.to_datetime(df['dateOfBirth'], format='mixed')
-    print(df['dateOfBirth'])
     
     df = df.drop_duplicates(subset=["username"]).reset_index(drop=True)
     return df[["nat_key", "username", "firstName", "lastName", "dateOfBirth", "gender"]]
