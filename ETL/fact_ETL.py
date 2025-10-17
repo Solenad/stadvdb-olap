@@ -51,7 +51,7 @@ def cleanFactData(df: pd.DataFrame, user_map, loc_map, date_map, prod_map) -> pd
           OrderNumber=lambda x: x["OrderNumber"].str.strip().str.title(),
           revenue=lambda x: pd.to_numeric(x['revenue'], errors='coerce')
       )
-      .drop_duplicates(subset=['OrderNumber'], keep='last')
+      .drop_duplicates(subset=['OrderNumber'])
       .dropna(subset=['revenue'])
       .assign(revenue=lambda x: np.ceil(x['revenue'] * 100) / 100)
       .reset_index(drop=True)
