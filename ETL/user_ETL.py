@@ -44,7 +44,6 @@ def warehouse_conn():
 
 
 def cleanUserData(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.dropna(subset=["username", "firstName", "lastName"]).copy()
     df["username"] = df["username"].str.strip().str.lower()
     df["firstName"] = df["firstName"].str.strip().str.title()
     df["lastName"] = df["lastName"].str.strip().str.title()
@@ -54,9 +53,9 @@ def cleanUserData(df: pd.DataFrame) -> pd.DataFrame:
         .str.lower()
         .replace({"male": "M", "female": "F", "m": "M", "f": "F"})
     )
-    df["dateOfBirth"] = pd.to_datetime(df["dateOfBirth"], errors="coerce")
-    df = df.dropna(subset=["dateOfBirth"])
-    df["dateOfBirth"] = df["dateOfBirth"].dt.date
+    df['dateOfBirth'] = pd.to_datetime(df['dateOfBirth'], format='mixed')
+    print(df['dateOfBirth'])
+    
     df = df.drop_duplicates(subset=["username"]).reset_index(drop=True)
     return df[["nat_key", "username", "firstName", "lastName", "dateOfBirth", "gender"]]
 
