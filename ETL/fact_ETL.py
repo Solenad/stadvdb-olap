@@ -117,22 +117,12 @@ def extractFact(user_df, loc_df, date_df, prod_df):
         date_map = dict(zip(date_df['nat_key'], date_df['surrogate_key']))
         prod_map = dict(zip(prod_df['nat_key'], prod_df['surrogate_key']))
         
-        dtype_map = {
-            'quantity': 'int32',
-            'revenue': 'float32',
-            'UserId': 'int32',
-            'ProductId': 'int32',
-            'LocationId': 'int32',
-            'DateId': 'int32',
-            'OrderNumber': 'object'
-        }
-        
         while True:
             chunk = list(itertools.islice(result, BATCH_SIZE))
             if not chunk:
                 break
 
-            df = pd.DataFrame(chunk, columns=result.keys()).astype(dtype_map)
+            df = pd.DataFrame(chunk, columns=result.keys())
             df = cleanFactData(df, user_map, loc_map, date_map, prod_map)
             if df.empty:
                 continue

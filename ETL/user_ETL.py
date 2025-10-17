@@ -79,7 +79,6 @@ def extractUser():
             users.c.dateOfBirth,
             users.c.gender,
         )
-        .order_by(users.c.username)
         .execution_options(stream_results=True, yield_per=BATCH_SIZE)
     )
 
@@ -120,23 +119,24 @@ def extractUser():
             conn.commit()
             db_rows = result_set.fetchall()
             
-            for db_row in db_rows:
-                username = db_row.username
-                surrogate_key = db_row.id
-                
-                nat_keys = df[df['username'] == username]['nat_key'].tolist()
-                for nat_key in nat_keys:
-                    mapping_data.append({
-                        'nat_key': nat_key,
-                        'surrogate_key': surrogate_key,
-                        'username': username
-                    })
+            if db_rows:
+                surrogate_key_df = pd.DataFrame(db_rows, columns=['id', 'username'])
+                surrogate_key_df = surrogate_key_df.rename(columns={'id': 'surrogate_key'})
+
+                merged_df = pd.merge(df, surrogate_key_df, on='username', how='inner')
+
+                if not merged_df.empty:
+                    mapping_data.append(merged_df[['nat_key', 'surrogate_key']])
             
             total_inserted += len(df)
-            del df, chunk
+            del df, chunk, db_rows
+            if 'surrogate_key_df' in locals():
+                del surrogate_key_df
+            if 'merged_df' in locals():
+                del merged_df
             gc.collect()
 
-    mapped_df = pd.DataFrame(mapping_data)
+    mapped_df = pd.concat(mapping_data, ignore_index=True) if mapping_data else pd.DataFrame(columns=['nat_key', 'surrogate_key'])
     logging.info(f"ETL completed - {total_inserted} users, {len(mapped_df)} mappings")
     end = time.time()
     length = end - start
