@@ -81,7 +81,6 @@ def extractProduct():
             prods.c.name,
             prods.c.price,
         )
-        .order_by(prods.c.name)
         .execution_options(stream_results=True, yield_per=BATCH_SIZE)
     )
 
@@ -121,23 +120,24 @@ def extractProduct():
             conn.commit()
             db_rows = result_set.fetchall()
             
-            for db_row in db_rows:
-                name = db_row.name
-                surrogate_key = db_row.id
-                
-                nat_keys = df[df['name'] == name]['nat_key'].tolist()
-                for nat_key in nat_keys:
-                    mapping_data.append({
-                        'nat_key': nat_key,
-                        'surrogate_key': surrogate_key,
-                        'name': name
-                    })
+            if db_rows:
+                surrogate_key_df = pd.DataFrame(db_rows, columns=['id', 'name'])
+                surrogate_key_df = surrogate_key_df.rename(columns={'id': 'surrogate_key'})
+
+                merged_df = pd.merge(df, surrogate_key_df, on='name', how='inner')
+
+                if not merged_df.empty:
+                    mapping_data.append(merged_df[['nat_key', 'surrogate_key']])
             
             total_inserted += len(df)
-            del df, chunk
+            del df, chunk, db_rows
+            if 'surrogate_key_df' in locals():
+                del surrogate_key_df
+            if 'merged_df' in locals():
+                del merged_df
             gc.collect()
 
-    mapped_df = pd.DataFrame(mapping_data)
+    mapped_df = pd.concat(mapping_data, ignore_index=True) if mapping_data else pd.DataFrame(columns=['nat_key', 'surrogate_key'])
     logging.info(f"ETL completed - {total_inserted} products, {len(mapped_df)} mappings")
     end = time.time()
     length = end - start
