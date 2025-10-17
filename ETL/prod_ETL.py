@@ -8,6 +8,7 @@ import logging
 import itertools
 import gc
 import os
+import time
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
@@ -63,6 +64,7 @@ def cleanProductData(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def extractProduct():
+    start = time.time()
     metadata = MetaData()
     metadata.reflect(bind=local.engine, only=["products"])
     prods = metadata.tables["products"]
@@ -132,9 +134,14 @@ def extractProduct():
                     })
             
             total_inserted += len(df)
+            del df, chunk
+            gc.collect()
 
     mapped_df = pd.DataFrame(mapping_data)
-    print(mapped_df)
     logging.info(f"ETL completed - {total_inserted} products, {len(mapped_df)} mappings")
+    end = time.time()
+    length = end - start
+
+    print("Product extraction took", length, "secondss")
     return mapped_df, {"totalInserted": total_inserted, "mapping": mapped_df}
 

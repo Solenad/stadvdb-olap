@@ -8,6 +8,7 @@ import logging
 import itertools
 import gc
 import os
+import time
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
@@ -43,25 +44,28 @@ def warehouse_conn():
         logging.info("Warehouse connection closed.")
 
 
-def cleanFactData(df: pd.DataFrame, user_df, loc_df, date_df, prod_df) -> pd.DataFrame:
-    df = df.dropna(subset=["OrderNumber"]).copy()
-    df["OrderNumber"] = df["OrderNumber"].str.strip().str.title()
-
-    df = df.drop_duplicates(subset=["OrderNumber"]).reset_index(drop=True)
-
-    df['revenue'] = pd.to_numeric(df['revenue'], errors='coerce')
-    df = df.dropna(subset=['revenue'])
-    df['revenue'] = np.ceil(df['revenue'] * 100)/100
+def cleanFactData(df: pd.DataFrame, user_map, loc_map, date_map, prod_map) -> pd.DataFrame:
+    df = (
+    df.dropna(subset=["OrderNumber"])
+      .assign(
+          OrderNumber=lambda x: x["OrderNumber"].str.strip().str.title(),
+          revenue=lambda x: pd.to_numeric(x['revenue'], errors='coerce')
+      )
+      .drop_duplicates(subset=["OrderNumber"])
+      .dropna(subset=['revenue'])
+      .assign(revenue=lambda x: np.ceil(x['revenue'] * 100) / 100)
+      .reset_index(drop=True)
+    )
     
     merge_info = [
-      ('UserId', user_df),
-      ('LocationId', loc_df),
-      ('DateId', date_df),
-      ('ProductId', prod_df)
+      ('UserId', user_map),
+      ('LocationId', loc_map),
+      ('DateId', date_map),
+      ('ProductId', prod_map)
     ]
     
     for col, dim_df in merge_info:
-        n_to_s = dict(zip(dim_df['nat_key'], dim_df['surrogate_key']))
+        n_to_s = dim_df
         mapped = df[col].map(n_to_s)
 
         mask = mapped.notna()
@@ -73,6 +77,7 @@ def cleanFactData(df: pd.DataFrame, user_df, loc_df, date_df, prod_df) -> pd.Dat
 
 
 def extractFact(user_df, loc_df, date_df, prod_df):
+    start = time.time()
     metadata = MetaData()
     metadata.reflect(bind=local.engine, only=["orderitems","users","products","orders"])
     oitems = metadata.tables["orderitems"]
@@ -99,7 +104,7 @@ def extractFact(user_df, loc_df, date_df, prod_df):
             ).join(
                 users, orders.c.userId == users.c.id
             )
-        ).order_by(users.c.username).execution_options(stream_results=True, yield_per=BATCH_SIZE)
+        ).execution_options(stream_results=True, yield_per=BATCH_SIZE)
 
     total_inserted = 0
     logging.info("Starting fact data extraction.")
@@ -107,13 +112,28 @@ def extractFact(user_df, loc_df, date_df, prod_df):
     with extract() as session, warehouse_conn() as conn:
         result = session.execute(stmt)
 
+        user_map = dict(zip(user_df['nat_key'], user_df['surrogate_key']))
+        loc_map = dict(zip(loc_df['nat_key'], loc_df['surrogate_key']))
+        date_map = dict(zip(date_df['nat_key'], date_df['surrogate_key']))
+        prod_map = dict(zip(prod_df['nat_key'], prod_df['surrogate_key']))
+        
+        dtype_map = {
+            'quantity': 'int32',
+            'revenue': 'float32',
+            'UserId': 'int32',
+            'ProductId': 'int32',
+            'LocationId': 'int32',
+            'DateId': 'int32',
+            'OrderNumber': 'object'
+        }
+        
         while True:
             chunk = list(itertools.islice(result, BATCH_SIZE))
             if not chunk:
                 break
 
-            df = pd.DataFrame(chunk, columns=result.keys())
-            df = cleanFactData(df,user_df, loc_df, date_df, prod_df)
+            df = pd.DataFrame(chunk, columns=result.keys()).astype(dtype_map)
+            df = cleanFactData(df, user_map, loc_map, date_map, prod_map)
             if df.empty:
                 continue
             insert_data = df[["quantity", "revenue", "UserId", "ProductId", "LocationId", "DateId", "OrderNumber"]].to_dict(orient="records")
@@ -140,4 +160,8 @@ def extractFact(user_df, loc_df, date_df, prod_df):
         f"ETL completed successfully — totalInserted = {
             total_inserted}"
     )
+    end = time.time()
+    length = end - start
+
+    print("Fact extraction took", length, "secondss")
     return {"totalInserted": total_inserted}

@@ -7,6 +7,7 @@ import logging
 import itertools
 import gc
 import os
+import time
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
@@ -60,6 +61,7 @@ def cleanUserData(df: pd.DataFrame) -> pd.DataFrame:
     return df[["nat_key", "username", "firstName", "lastName", "dateOfBirth", "gender"]]
 
 def extractUser():
+    start = time.time()
     metadata = MetaData()
     metadata.reflect(bind=local.engine, only=["users"])
     users = metadata.tables["users"]
@@ -131,8 +133,13 @@ def extractUser():
                     })
             
             total_inserted += len(df)
+            del df, chunk
+            gc.collect()
 
     mapped_df = pd.DataFrame(mapping_data)
-    print(mapped_df)
     logging.info(f"ETL completed - {total_inserted} users, {len(mapped_df)} mappings")
+    end = time.time()
+    length = end - start
+
+    print("User extraction took", length, "secondss")
     return mapped_df, {"totalInserted": total_inserted, "mapping": mapped_df}
