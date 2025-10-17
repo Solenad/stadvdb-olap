@@ -112,8 +112,6 @@ def extractDate():
 
                 if not merged_df.empty:
                     mapping_data.append(merged_df[['nat_key', 'surrogate_key']])
-                    
-                print(merged_df)
             
             del df, chunk, db_rows, surrogate_key_df, merged_df
             gc.collect()

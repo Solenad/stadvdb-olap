@@ -116,7 +116,7 @@ def extractUser():
             result_set = conn.execute(upsert_stmt)
             conn.commit()
             db_rows = result_set.fetchall()
-            total_inserted += len(db_rows)
+            total_inserted += len(df)
             
             if db_rows:
                 surrogate_key_df = pd.DataFrame(db_rows, columns=['id', 'username'])

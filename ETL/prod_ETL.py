@@ -53,13 +53,12 @@ def cleanProductData(df: pd.DataFrame) -> pd.DataFrame:
     df['price'] = np.ceil(df['price'] * 100)/100
     
     df['category'] = df['category'].replace(
-       {'toy':'Toys', 
-        'toys':'Toys', 
-        'gadgets':'Gadgets', 
-        'makeup': 'Make up', 
-        'bag':'Bags'})
+       {'toy':'Toys', 'toys':'Toys', 'appliances':'Appliances',
+        'gadgets':'Gadgets', 'electronics':'Electronics', 'laptops':'Laptops', 
+        'makeup': 'Make Up', 'make up': 'Make Up',
+        'bag':'Bags', 'bags':'Bags', 'clothes':'Clothes', 'men\'s apparel':'Men\'s Apparel'})
 
-    df = df.drop_duplicates(subset=["name"]).reset_index(drop=True)
+    df = df.drop_duplicates(subset=["category","name","description"]).reset_index(drop=True)
     return df[["nat_key", "category", "description", "name", "price"]]
 
 
@@ -108,33 +107,28 @@ def extractProduct():
             insert_data = df[["category", "description", "name", "price"]].to_dict(orient="records")
             insert_stmt = insert(target_prods).values(insert_data)
             upsert_stmt = insert_stmt.on_conflict_do_update(
-                index_elements=["name"],
+                index_elements=["name","description"],
                 set_={
                     "category": insert_stmt.excluded.category,
-                    "description": insert_stmt.excluded.description, 
                     "price": insert_stmt.excluded.price,
                 },
-            ).returning(target_prods.c.id, target_prods.c.name)
+            ).returning(target_prods.c.id, target_prods.c.name, target_prods.c.description)
 
             result_set = conn.execute(upsert_stmt)
             conn.commit()
             db_rows = result_set.fetchall()
+            total_inserted += len(db_rows)
             
             if db_rows:
-                surrogate_key_df = pd.DataFrame(db_rows, columns=['id', 'name'])
+                surrogate_key_df = pd.DataFrame(db_rows, columns=['id', 'name', 'description'])
                 surrogate_key_df = surrogate_key_df.rename(columns={'id': 'surrogate_key'})
 
-                merged_df = pd.merge(df, surrogate_key_df, on='name', how='inner')
+                merged_df = pd.merge(df, surrogate_key_df, on=['name', 'description'], how='inner')
 
                 if not merged_df.empty:
                     mapping_data.append(merged_df[['nat_key', 'surrogate_key']])
             
-            total_inserted += len(df)
-            del df, chunk, db_rows
-            if 'surrogate_key_df' in locals():
-                del surrogate_key_df
-            if 'merged_df' in locals():
-                del merged_df
+            del df, chunk, db_rows, merged_df, surrogate_key_df
             gc.collect()
 
     mapped_df = pd.concat(mapping_data, ignore_index=True) if mapping_data else pd.DataFrame(columns=['nat_key', 'surrogate_key'])
