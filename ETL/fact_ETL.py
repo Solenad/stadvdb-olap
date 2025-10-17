@@ -153,5 +153,5 @@ def extractFact(user_df, loc_df, date_df, prod_df):
     end = time.time()
     length = end - start
 
-    print("Fact extraction took", length, "secondss")
+    print("Fact extraction took", length, "seconds")
     return {"totalInserted": total_inserted}

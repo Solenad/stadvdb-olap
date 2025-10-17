@@ -116,6 +116,7 @@ def extractUser():
             result_set = conn.execute(upsert_stmt)
             conn.commit()
             db_rows = result_set.fetchall()
+            total_inserted += len(db_rows)
             
             if db_rows:
                 surrogate_key_df = pd.DataFrame(db_rows, columns=['id', 'username'])
@@ -126,7 +127,7 @@ def extractUser():
                 if not merged_df.empty:
                     mapping_data.append(merged_df[['nat_key', 'surrogate_key']])
             
-            total_inserted += len(df)
+            #total_inserted += len(df)
             del df, chunk, db_rows
             if 'surrogate_key_df' in locals():
                 del surrogate_key_df
@@ -139,5 +140,5 @@ def extractUser():
     end = time.time()
     length = end - start
 
-    print("User extraction took", length, "secondss")
+    print("User extraction took", length, "seconds")
     return mapped_df, {"totalInserted": total_inserted, "mapping": mapped_df}

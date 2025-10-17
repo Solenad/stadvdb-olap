@@ -101,6 +101,7 @@ def extractDate():
             result_set = conn.execute(upsert_stmt)
             conn.commit()
             db_rows = result_set.fetchall()
+            total_inserted += len(db_rows)
             
             if db_rows:
                 surrogate_key_df = pd.DataFrame(db_rows, columns=['id', 'date'])
@@ -111,8 +112,9 @@ def extractDate():
 
                 if not merged_df.empty:
                     mapping_data.append(merged_df[['nat_key', 'surrogate_key']])
+                    
+                print(merged_df)
             
-            total_inserted += len(df)
             del df, chunk, db_rows, surrogate_key_df, merged_df
             gc.collect()
 
